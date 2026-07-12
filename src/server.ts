@@ -70,14 +70,14 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   try {
     if (isRead) {
       const { signals, result } = await computeForWallet(wallet);
-      send(res, 200, { wallet, signals, ...result });
+      send(res, 200, { signals, ...result });
       return;
     }
 
     if (isCommit) {
       const { signals, result } = await computeForWallet(wallet);
       const { txUrl } = await writeScoreOnChain(wallet, result.score, result.percentile);
-      send(res, 200, { wallet, signals, ...result, txUrl });
+      send(res, 200, { signals, ...result, txUrl });
       return;
     }
 
