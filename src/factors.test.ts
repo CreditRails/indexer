@@ -8,6 +8,7 @@ function baseSignals(overrides: Partial<WalletSignals> = {}): WalletSignals {
     wallet: "GTEST",
     txCount: 10,
     accountAgeDays: 0,
+    accountAgeConfidence: "exact",
     txPerWeek: 0,
     inflowUsd: 0,
     outflowUsd: 0,
@@ -16,6 +17,9 @@ function baseSignals(overrides: Partial<WalletSignals> = {}): WalletSignals {
     distinctCounterparties: 0,
     recurringCounterpartyCount: 0,
     hasRegularRecurrence: false,
+    defiProtocolsTouched: [],
+    defiInteractionCount: 0,
+    blendPositions: [],
     ...overrides,
   };
 }
@@ -28,6 +32,7 @@ test("computeFactors: all-zero signals produce all-zero factors", () => {
   assert.equal(factors.savingsTrend, 0);
   assert.equal(factors.remittanceRegularity, 0);
   assert.equal(factors.diversity, 0);
+  assert.equal(factors.defiParticipation, 0);
 });
 
 test("computeFactors: clamps accountAge and diversity at 100 past their max thresholds", () => {
@@ -59,6 +64,24 @@ test("computeFactors: remittanceRegularity rewards regular recurrence and repeat
   assert.equal(irregular.remittanceRegularity, 0);
 });
 
+test("computeFactors: defiParticipation rewards an active Blend position over a bare interaction", () => {
+  const withPosition = computeFactors(
+    baseSignals({
+      defiProtocolsTouched: ["blend"],
+      defiInteractionCount: 1,
+      blendPositions: [{ poolId: "CPOOL", hasCollateral: true, hasLiabilities: false, hasSupply: false }],
+    })
+  );
+  const bareInteraction = computeFactors(
+    baseSignals({ defiProtocolsTouched: ["blend"], defiInteractionCount: 1, blendPositions: [] })
+  );
+  const none = computeFactors(baseSignals());
+
+  assert.ok(withPosition.defiParticipation > bareInteraction.defiParticipation);
+  assert.ok(bareInteraction.defiParticipation > none.defiParticipation);
+  assert.equal(none.defiParticipation, 0);
+});
+
 test("weightedFactorAverage: all factors at 100 averages to 100", () => {
   const avg = weightedFactorAverage({
     paymentHistory: 100,
@@ -67,18 +90,20 @@ test("weightedFactorAverage: all factors at 100 averages to 100", () => {
     savingsTrend: 100,
     remittanceRegularity: 100,
     diversity: 100,
+    defiParticipation: 100,
   });
   assert.equal(avg, 100);
 });
 
 test("weightedFactorAverage: respects individual factor weights", () => {
   const avg = weightedFactorAverage({
-    paymentHistory: 100, // weight 0.30
+    paymentHistory: 100, // weight 0.27
     transactionVolume: 0,
     accountAge: 0,
     savingsTrend: 0,
     remittanceRegularity: 0,
     diversity: 0,
+    defiParticipation: 0,
   });
-  assert.equal(avg, 30);
+  assert.equal(avg, 27);
 });

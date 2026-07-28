@@ -45,6 +45,17 @@ export function computeFactors(signals: WalletSignals): Factors {
       100
   );
 
+  // Active lending position (collateral/supply on Blend) counts far more than a bare
+  // "touched the contract once" interaction — repayment behavior is the strongest signal.
+  const hasActiveLendingPosition = signals.blendPositions.some(
+    (p) => p.hasCollateral || p.hasSupply || p.hasLiabilities
+  );
+  const defiParticipation = clamp100(
+    (hasActiveLendingPosition ? 60 : 0) +
+      Math.min(20, signals.defiInteractionCount * 5) +
+      (signals.defiProtocolsTouched.length / THRESHOLDS.defiProtocolsForMaxScore) * 20
+  );
+
   return {
     paymentHistory,
     transactionVolume,
@@ -52,6 +63,7 @@ export function computeFactors(signals: WalletSignals): Factors {
     savingsTrend,
     remittanceRegularity,
     diversity,
+    defiParticipation,
   };
 }
 

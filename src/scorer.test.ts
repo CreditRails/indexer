@@ -22,6 +22,7 @@ function signalsWithTxCount(txCount: number): WalletSignals {
     wallet: "GTEST",
     txCount,
     accountAgeDays: 100,
+    accountAgeConfidence: "exact",
     txPerWeek: 5,
     inflowUsd: 1000,
     outflowUsd: 500,
@@ -30,6 +31,9 @@ function signalsWithTxCount(txCount: number): WalletSignals {
     distinctCounterparties: 2,
     recurringCounterpartyCount: 1,
     hasRegularRecurrence: false,
+    defiProtocolsTouched: [],
+    defiInteractionCount: 0,
+    blendPositions: [],
   };
 }
 

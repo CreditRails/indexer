@@ -1,8 +1,7 @@
 import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { accountExists, fetchPayments, fetchTrades } from "./horizon.js";
-import { deriveSignals } from "./signals.js";
-import { scoreWallet } from "./scorer.js";
+import { CONTRACT, type NetworkName } from "./config.js";
+import { computeForWallet } from "./compute.js";
 import { writeScoreOnChain } from "./contract.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -15,17 +14,9 @@ if (!ADMIN_TOKEN) {
   process.exit(1);
 }
 
-async function computeForWallet(wallet: string) {
-  const exists = await accountExists(wallet);
-  if (!exists) {
-    throw Object.assign(new Error("Account not found on testnet (unfunded or invalid)."), {
-      statusCode: 404,
-    });
-  }
-  const [payments, trades] = await Promise.all([fetchPayments(wallet), fetchTrades(wallet)]);
-  const signals = deriveSignals(wallet, payments, trades);
-  const result = scoreWallet(signals);
-  return { signals, result };
+function parseNetwork(url: URL): NetworkName | null {
+  const raw = url.searchParams.get("network") ?? "testnet";
+  return raw === "testnet" || raw === "mainnet" ? raw : null;
 }
 
 function send(res: ServerResponse, status: number, body: unknown) {
@@ -46,38 +37,61 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
 
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
-  const parts = url.pathname.split("/").filter(Boolean); // ["api","score",":wallet"] or [...,"commit"]
+  const parts = url.pathname.split("/").filter(Boolean); // ["api","score",":wallet"] | [...,"commit"] | ["api","public","score",":wallet"]
 
-  if (parts[0] !== "api" || parts[1] !== "score" || !parts[2]) {
-    send(res, 404, { error: "not_found" });
+  const network = parseNetwork(url);
+  if (!network) {
+    send(res, 400, { error: "invalid_network", message: "network must be 'testnet' or 'mainnet'." });
     return;
   }
-
-  if (req.headers["x-admin-token"] !== ADMIN_TOKEN) {
-    send(res, 401, { error: "unauthorized" });
-    return;
-  }
-
-  const wallet = decodeURIComponent(parts[2]);
-  if (!WALLET_RE.test(wallet)) {
-    send(res, 400, { error: "invalid_wallet", message: "Expected a Stellar G... public key." });
-    return;
-  }
-
-  const isCommit = req.method === "POST" && parts[3] === "commit";
-  const isRead = req.method === "GET" && parts.length === 3;
 
   try {
+    // GET /api/public/score/:wallet?network= — unauthenticated, dry-run only. No rate
+    // limiting or API-key layer yet: local/dev use, same posture as the rest of the indexer.
+    if (req.method === "GET" && parts[0] === "api" && parts[1] === "public" && parts[2] === "score" && parts[3]) {
+      const wallet = decodeURIComponent(parts[3]);
+      if (!WALLET_RE.test(wallet)) {
+        send(res, 400, { error: "invalid_wallet", message: "Expected a Stellar G... public key." });
+        return;
+      }
+      const { signals, result } = await computeForWallet(wallet, network);
+      send(res, 200, { signals, ...result, network });
+      return;
+    }
+
+    if (parts[0] !== "api" || parts[1] !== "score" || !parts[2]) {
+      send(res, 404, { error: "not_found" });
+      return;
+    }
+
+    if (req.headers["x-admin-token"] !== ADMIN_TOKEN) {
+      send(res, 401, { error: "unauthorized" });
+      return;
+    }
+
+    const wallet = decodeURIComponent(parts[2]);
+    if (!WALLET_RE.test(wallet)) {
+      send(res, 400, { error: "invalid_wallet", message: "Expected a Stellar G... public key." });
+      return;
+    }
+
+    const isCommit = req.method === "POST" && parts[3] === "commit";
+    const isRead = req.method === "GET" && parts.length === 3;
+
     if (isRead) {
-      const { signals, result } = await computeForWallet(wallet);
-      send(res, 200, { signals, ...result });
+      const { signals, result } = await computeForWallet(wallet, network);
+      send(res, 200, { signals, ...result, network });
       return;
     }
 
     if (isCommit) {
-      const { signals, result } = await computeForWallet(wallet);
-      const { txUrl } = await writeScoreOnChain(wallet, result.score, result.percentile);
-      send(res, 200, { signals, ...result, txUrl });
+      if (network === "mainnet") {
+        send(res, 400, { error: "unsupported_network", message: "No credit_score contract deployed on mainnet yet." });
+        return;
+      }
+      const { signals, result } = await computeForWallet(wallet, network);
+      const { txUrl } = await writeScoreOnChain(wallet, result.score, result.percentile, CONTRACT[network], network);
+      send(res, 200, { signals, ...result, network, txUrl });
       return;
     }
 
@@ -94,7 +108,8 @@ createServer((req, res) => {
     send(res, 500, { error: "internal_error" });
   });
 }).listen(PORT, () => {
-  console.log(`CreditRails admin API listening on http://localhost:${PORT}`);
-  console.log(`  GET  /api/score/:wallet         (dry run — signals + factors + score)`);
-  console.log(`  POST /api/score/:wallet/commit  (writes score on-chain)`);
+  console.log(`CreditRails API listening on http://localhost:${PORT}`);
+  console.log(`  GET  /api/score/:wallet?network=          (admin, dry run — signals + factors + score)`);
+  console.log(`  POST /api/score/:wallet/commit?network=   (admin, writes score on-chain — testnet only)`);
+  console.log(`  GET  /api/public/score/:wallet?network=    (public, dry run — no auth yet)`);
 });
