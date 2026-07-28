@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { CONTRACT } from "./config.js";
+import type { NetworkName } from "./config.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -12,17 +12,23 @@ const execFileAsync = promisify(execFile);
 export async function writeScoreOnChain(
   wallet: string,
   score: number,
-  percentile: number
+  percentile: number,
+  contract: { creditScoreId: string | null; adminIdentity: string | null },
+  network: NetworkName = "testnet"
 ): Promise<{ txUrl: string | null; raw: string }> {
+  if (!contract.creditScoreId || !contract.adminIdentity) {
+    throw new Error(`No credit_score contract configured for ${network}.`);
+  }
+
   const args = [
     "contract",
     "invoke",
     "--id",
-    CONTRACT.creditScoreId,
+    contract.creditScoreId,
     "--source",
-    CONTRACT.adminIdentity,
+    contract.adminIdentity,
     "--network",
-    CONTRACT.network,
+    network,
     "--",
     "update_score",
     "--wallet",
@@ -35,6 +41,6 @@ export async function writeScoreOnChain(
 
   const { stdout, stderr } = await execFileAsync("stellar", args);
   const raw = `${stdout}${stderr}`;
-  const match = raw.match(/https:\/\/stellar\.expert\/explorer\/testnet\/tx\/\S+/);
+  const match = raw.match(/https:\/\/stellar\.expert\/explorer\/\S+\/tx\/\S+/);
   return { txUrl: match?.[0] ?? null, raw };
 }

@@ -1,5 +1,6 @@
 import { ASSET_USD_PRICE, LOOKBACK_DAYS, THRESHOLDS } from "./config.js";
-import type { HorizonPayment, HorizonTrade } from "./horizon.js";
+import type { HorizonEffect, HorizonOperation, HorizonPayment, HorizonTrade } from "./horizon.js";
+import type { BlendPositionSummary, DefiSignals } from "./defi.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -25,15 +26,24 @@ function stddev(values: number[]): number {
 }
 
 export interface LargeEvent {
-  kind: "payment" | "swap";
+  kind: "payment" | "swap" | "contract_transfer";
   usd: number;
   at: string;
 }
+
+export type AccountAgeConfidence = "exact" | "estimated";
 
 export interface WalletSignals {
   wallet: string;
   txCount: number;
   accountAgeDays: number;
+  /**
+   * "exact" when a `create_account` operation was found (age is precise).
+   * "estimated" when it wasn't — the wallet is *at least* this old; on mainnet this
+   * usually means it predates Horizon's 1-year retention window. Point `horizonUrl`
+   * at a full-history provider (see NETWORKS.mainnet.archivalHorizonUrl) for an exact figure.
+   */
+  accountAgeConfidence: AccountAgeConfidence;
   txPerWeek: number;
   inflowUsd: number;
   outflowUsd: number;
@@ -42,25 +52,38 @@ export interface WalletSignals {
   distinctCounterparties: number;
   recurringCounterpartyCount: number;
   hasRegularRecurrence: boolean;
+  defiProtocolsTouched: string[];
+  defiInteractionCount: number;
+  blendPositions: BlendPositionSummary[];
 }
 
 export function deriveSignals(
   wallet: string,
   allPayments: HorizonPayment[],
-  allTrades: HorizonTrade[]
+  allTrades: HorizonTrade[],
+  allOperations: HorizonOperation[],
+  allEffects: HorizonEffect[],
+  firstOperation: HorizonOperation | null,
+  defi: DefiSignals,
+  blendPositions: BlendPositionSummary[]
 ): WalletSignals {
   const now = new Date();
 
   const payments = allPayments.filter((p) => withinLookback(p.created_at, now));
   const trades = allTrades.filter((t) => withinLookback(t.ledger_close_time, now));
+  const contractEffects = allEffects.filter(
+    (e) => (e.type === "contract_credited" || e.type === "contract_debited") && withinLookback(e.created_at, now)
+  );
 
-  const firstEvent = allPayments[0]?.created_at ?? null;
-  const accountAgeDays = firstEvent
-    ? (now.getTime() - new Date(firstEvent).getTime()) / DAY_MS
-    : 0;
+  // `firstOperation` comes from a dedicated, uncapped request (see fetchFirstOperation) —
+  // `allOperations`/`allPayments` are most-recent-first and capped, so they can't be trusted
+  // to contain the account's true earliest record for high-activity wallets.
+  const accountAgeConfidence: AccountAgeConfidence = firstOperation?.type === "create_account" ? "exact" : "estimated";
+  const ageAnchor = firstOperation?.created_at ?? null;
+  const accountAgeDays = ageAnchor ? (now.getTime() - new Date(ageAnchor).getTime()) / DAY_MS : 0;
 
   const activeDays = Math.max(1, Math.min(accountAgeDays, LOOKBACK_DAYS));
-  const txCount = payments.length + trades.length;
+  const txCount = payments.length + trades.length + contractEffects.length;
   const txPerWeek = (txCount / activeDays) * 7;
 
   let inflowUsd = 0;
@@ -112,6 +135,22 @@ export function deriveSignals(
     }
   }
 
+  // Soroban token transfers (e.g. SAC-wrapped assets moved via a contract call) never
+  // appear as classic payments — effects are the only place they show up. No counterparty
+  // is exposed here, so these contribute to volume/large-event signals but not recurrence.
+  for (const e of contractEffects) {
+    const key = assetKey(e.asset_type ?? "native", e.asset_code);
+    assets.add(key);
+    const usd = usdValue(e.amount, key);
+
+    if (e.type === "contract_credited") inflowUsd += usd;
+    if (e.type === "contract_debited") outflowUsd += usd;
+
+    if (usd >= THRESHOLDS.largeAmountUsd) {
+      largeEvents.push({ kind: "contract_transfer", usd, at: e.created_at });
+    }
+  }
+
   let recurringCounterpartyCount = 0;
   let hasRegularRecurrence = false;
   for (const dates of inflowsByCounterparty.values()) {
@@ -132,6 +171,7 @@ export function deriveSignals(
     wallet,
     txCount,
     accountAgeDays,
+    accountAgeConfidence,
     txPerWeek,
     inflowUsd,
     outflowUsd,
@@ -140,5 +180,8 @@ export function deriveSignals(
     distinctCounterparties: counterparties.size,
     recurringCounterpartyCount,
     hasRegularRecurrence,
+    defiProtocolsTouched: defi.protocolsTouched,
+    defiInteractionCount: defi.interactionCount,
+    blendPositions,
   };
 }
