@@ -54,8 +54,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         send(res, 400, { error: "invalid_wallet", message: "Expected a Stellar G... public key." });
         return;
       }
-      const { signals, result } = await computeForWallet(wallet, network);
-      send(res, 200, { signals, ...result, network });
+      const { signals, result, recentPayments } = await computeForWallet(wallet, network);
+      send(res, 200, { signals, recentPayments, ...result, network });
       return;
     }
 
@@ -79,8 +79,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const isRead = req.method === "GET" && parts.length === 3;
 
     if (isRead) {
-      const { signals, result } = await computeForWallet(wallet, network);
-      send(res, 200, { signals, ...result, network });
+      const { signals, result, recentPayments } = await computeForWallet(wallet, network);
+      send(res, 200, { signals, recentPayments, ...result, network });
       return;
     }
 
@@ -89,9 +89,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         send(res, 400, { error: "unsupported_network", message: "No credit_score contract deployed on mainnet yet." });
         return;
       }
-      const { signals, result } = await computeForWallet(wallet, network);
+      const { signals, result, recentPayments } = await computeForWallet(wallet, network);
       const { txUrl } = await writeScoreOnChain(wallet, result.score, result.percentile, CONTRACT[network], network);
-      send(res, 200, { signals, ...result, network, txUrl });
+      send(res, 200, { signals, recentPayments, ...result, network, txUrl });
       return;
     }
 
