@@ -3,3 +3,4 @@ dist/
 .env
 .env.local
 data/pool-registry.*.json
+data/score-history.*.json
