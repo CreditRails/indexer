@@ -75,10 +75,16 @@ export const ASSET_USD_PRICE: Record<string, number> = {
   yUSDC: 1,
 };
 
-/** Verified DeFi protocol contract addresses, per network. See defi-registry.ts. */
+/**
+ * Verified DeFi protocol contract addresses, per network. See defi-registry.ts.
+ * Aqua (Aquarius) is mainnet-only here on purpose — its own docs (docs.aqua.network) state the
+ * testnet router address changes across testnet resets, and an earlier search turned up a
+ * different value than the current one, confirming it. Re-verify against Aquarius's docs before
+ * adding a testnet entry — see data/pending-defi-integrations.md.
+ */
 export const DEFI_CONTRACTS: Record<
   NetworkName,
-  Record<string, { protocol: "blend" | "soroswap"; category: "lending" | "amm"; role: string }>
+  Record<string, { protocol: "blend" | "soroswap" | "aqua"; category: "lending" | "amm"; role: string }>
 > = {
   mainnet: {
     CDSYOAVXFY7SM5S64IZPPPYB4GVGGLMQVFREPSQQEZVIWXX5R23G4QSU: { protocol: "blend", category: "lending", role: "poolFactoryV2" },
@@ -87,6 +93,7 @@ export const DEFI_CONTRACTS: Record<
     CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM: { protocol: "blend", category: "lending", role: "comet-BLND-USDC" },
     CAG5LRYQ5JVEUI5TEID72EYOVX44TTUJT5BQR2J6J77FH65PCCFAJDDH: { protocol: "soroswap", category: "amm", role: "router" },
     CA4HEQTL2WPEUYKYKCDOHCDNIV4QHNJ7EL4J4NQ6VADP7SYHVRYZ7AW2: { protocol: "soroswap", category: "amm", role: "factory" },
+    CBQDHNBFBZYE4MKPWBSJOPIYLW4SFSXAXUTSXJN76GNKYVYPCKWC6QUK: { protocol: "aqua", category: "amm", role: "router" },
   },
   testnet: {
     CDV6RX4CGPCOKGTBFS52V3LMWQGZN3LCQTXF5RVPOOCG4XVMHXQ4NTF6: { protocol: "blend", category: "lending", role: "poolFactoryV2" },

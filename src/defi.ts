@@ -17,11 +17,12 @@ const CACHE_DIR = join(__dirname, "..", "data");
 
 export interface DefiMatch {
   contractId: string;
-  protocol: "blend" | "soroswap";
+  protocol: "blend" | "soroswap" | "aqua";
   category: "lending" | "amm";
   role: string;
   functionName: string | null;
   at: string;
+  transactionHash: string;
 }
 
 export interface DefiSignals {
@@ -138,7 +139,7 @@ export async function detectDefi(
 
   const matches: DefiMatch[] = [];
   const protocolsTouched = new Set<string>();
-  const unknownOps: { contractId: string; functionName: string; at: string }[] = [];
+  const unknownOps: { contractId: string; functionName: string; at: string; transactionHash: string }[] = [];
 
   for (const op of operations) {
     if (op.type !== "invoke_host_function") continue;
@@ -148,18 +149,18 @@ export async function detectDefi(
 
     const known = registry[contractId];
     if (known) {
-      matches.push({ contractId, protocol: known.protocol, category: known.category, role: known.role, functionName, at: op.created_at });
+      matches.push({ contractId, protocol: known.protocol, category: known.category, role: known.role, functionName, at: op.created_at, transactionHash: op.transaction_hash });
       protocolsTouched.add(known.protocol);
       continue;
     }
 
     if (poolCache.has(contractId)) {
-      matches.push({ contractId, protocol: "blend", category: "lending", role: "pool", functionName, at: op.created_at });
+      matches.push({ contractId, protocol: "blend", category: "lending", role: "pool", functionName, at: op.created_at, transactionHash: op.transaction_hash });
       protocolsTouched.add("blend");
       continue;
     }
 
-    unknownOps.push({ contractId, functionName, at: op.created_at });
+    unknownOps.push({ contractId, functionName, at: op.created_at, transactionHash: op.transaction_hash });
   }
 
   const uniqueUnknownIds = [...new Set(unknownOps.map((o) => o.contractId))].slice(0, MAX_UNKNOWN_CONTRACTS_CHECKED);
@@ -183,7 +184,7 @@ export async function detectDefi(
 
     for (const op of unknownOps) {
       if (confirmedPools.has(op.contractId)) {
-        matches.push({ contractId: op.contractId, protocol: "blend", category: "lending", role: "pool", functionName: op.functionName, at: op.at });
+        matches.push({ contractId: op.contractId, protocol: "blend", category: "lending", role: "pool", functionName: op.functionName, at: op.at, transactionHash: op.transactionHash });
         protocolsTouched.add("blend");
       }
     }
